@@ -1,0 +1,59 @@
+name: Release
+
+# main 브랜치를 대상으로 PR이 closed 상태가 되었을 때 트리거
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+# https://docs.github.com/en/rest/overview/permissions-required-for-github-apps?apiVersion=2022-11-28#repository-permissions-for-contents
+# 쓰기 권한 부야
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # PR이 머지되었고, 작업 브랜치가 main or master가 아니면 실행
+    if: |
+      ${{
+        github.event.pull_request.merged == true &&
+        (github.head_ref != 'main' || github.head_ref != 'master')
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+
+      - name: Conventional Changelog Action
+        id: changelog
+        uses: TriPSs/conventional-changelog-action@v3
+        with:
+          github-token: ${{ secrets.ACTION_TOKEN }}
+          # conventional commits 설정 파일 제공
+          config-file-path: 'conventionalcommits.config.js'
+          skip-git-pull: true
+          preset: 'conventionalcommits'
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: ${{ steps.changelog.outputs.skipped == 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_TOKEN }}
+        with:
+          # release body에 Conventional Changelog Action 단계 결과물을 전달.
+          body: ${{ steps.changelog.outputs.clean_changelog }}
+          draft: false
+          prerelease: false
+          name: ${{ steps.changelog.outputs.tag }}
+          tag_name: ${{ steps.changelog.outputs.tag }}
